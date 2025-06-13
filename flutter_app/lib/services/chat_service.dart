@@ -2,17 +2,22 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import '../models/message.dart';
+import '../models/ai_provider.dart';
 
 class ChatService extends ChangeNotifier {
   static const String baseUrl = 'http://localhost:3000/api';
   
   final List<Message> _messages = [];
+  final List<AIProvider> _providers = [];
   bool _isLoading = false;
   String? _error;
+  String _selectedProvider = 'mock';
 
   List<Message> get messages => List.unmodifiable(_messages);
+  List<AIProvider> get providers => List.unmodifiable(_providers);
   bool get isLoading => _isLoading;
   String? get error => _error;
+  String get selectedProvider => _selectedProvider;
 
   void addMessage(Message message) {
     _messages.add(message);
@@ -24,6 +29,28 @@ class ChatService extends ChangeNotifier {
     if (index != -1) {
       _messages[index] = updatedMessage;
       notifyListeners();
+    }
+  }
+
+  void setSelectedProvider(String providerId) {
+    _selectedProvider = providerId;
+    notifyListeners();
+  }
+
+  Future<void> loadProviders() async {
+    try {
+      final response = await http.get(Uri.parse('$baseUrl/providers'));
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        _providers.clear();
+        for (var providerData in data['providers']) {
+          _providers.add(AIProvider.fromJson(providerData));
+        }
+        _selectedProvider = data['default'] ?? 'mock';
+        notifyListeners();
+      }
+    } catch (e) {
+      print('Failed to load providers: $e');
     }
   }
 
@@ -62,6 +89,7 @@ class ChatService extends ChangeNotifier {
         },
         body: json.encode({
           'message': content,
+          'provider': _selectedProvider,
         }),
       );
 
@@ -101,5 +129,17 @@ class ChatService extends ChangeNotifier {
     } catch (e) {
       return false;
     }
+  }
+
+  AIProvider? getSelectedProviderInfo() {
+    return _providers.firstWhere(
+      (provider) => provider.id == _selectedProvider,
+      orElse: () => AIProvider(
+        id: 'mock',
+        name: 'Mock AI',
+        available: true,
+        description: 'Simple responses for testing',
+      ),
+    );
   }
 }

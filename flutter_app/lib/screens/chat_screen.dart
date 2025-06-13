@@ -4,6 +4,7 @@ import '../services/chat_service.dart';
 import '../models/message.dart';
 import '../widgets/message_bubble.dart';
 import '../widgets/message_input.dart';
+import '../widgets/provider_selector.dart';
 
 class ChatScreen extends StatefulWidget {
   const ChatScreen({super.key});
@@ -20,6 +21,7 @@ class _ChatScreenState extends State<ChatScreen> {
   void initState() {
     super.initState();
     _checkServerHealth();
+    _loadProviders();
   }
 
   void _checkServerHealth() async {
@@ -28,6 +30,11 @@ class _ChatScreenState extends State<ChatScreen> {
     setState(() {
       _serverHealthy = isHealthy;
     });
+  }
+
+  void _loadProviders() async {
+    final chatService = Provider.of<ChatService>(context, listen: false);
+    await chatService.loadProviders();
   }
 
   void _scrollToBottom() {
@@ -50,12 +57,28 @@ class _ChatScreenState extends State<ChatScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text(
-          'AI Chat Assistant',
-          style: TextStyle(fontWeight: FontWeight.bold),
+        title: Consumer<ChatService>(
+          builder: (context, chatService, child) {
+            final providerInfo = chatService.getSelectedProviderInfo();
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'AI Chat Assistant',
+                  style: TextStyle(fontWeight: FontWeight.bold),
+                ),
+                if (providerInfo != null)
+                  Text(
+                    providerInfo.name,
+                    style: const TextStyle(fontSize: 12),
+                  ),
+              ],
+            );
+          },
         ),
         backgroundColor: Theme.of(context).colorScheme.inversePrimary,
         actions: [
+          const ProviderSelector(),
           IconButton(
             icon: Icon(
               _serverHealthy ? Icons.cloud_done : Icons.cloud_off,
@@ -68,9 +91,21 @@ class _ChatScreenState extends State<ChatScreen> {
             onSelected: (value) {
               if (value == 'clear') {
                 _showClearDialog();
+              } else if (value == 'providers') {
+                _showProvidersDialog();
               }
             },
             itemBuilder: (context) => [
+              const PopupMenuItem(
+                value: 'providers',
+                child: Row(
+                  children: [
+                    Icon(Icons.settings),
+                    SizedBox(width: 8),
+                    Text('ตั้งค่า AI'),
+                  ],
+                ),
+              ),
               const PopupMenuItem(
                 value: 'clear',
                 child: Row(
@@ -115,29 +150,66 @@ class _ChatScreenState extends State<ChatScreen> {
                 });
 
                 if (messages.isEmpty) {
-                  return const Center(
+                  return Center(
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
                         Icon(
                           Icons.chat_bubble_outline,
                           size: 64,
-                          color: Colors.grey,
+                          color: Colors.grey.shade400,
                         ),
-                        SizedBox(height: 16),
+                        const SizedBox(height: 16),
                         Text(
                           'เริ่มสนทนากับ AI Assistant',
                           style: TextStyle(
                             fontSize: 18,
-                            color: Colors.grey,
+                            color: Colors.grey.shade600,
                           ),
                         ),
-                        SizedBox(height: 8),
+                        const SizedBox(height: 8),
                         Text(
                           'พิมพ์ข้อความด้านล่างเพื่อเริ่มต้น',
                           style: TextStyle(
-                            color: Colors.grey,
+                            color: Colors.grey.shade500,
                           ),
+                        ),
+                        const SizedBox(height: 16),
+                        Consumer<ChatService>(
+                          builder: (context, chatService, child) {
+                            final providerInfo = chatService.getSelectedProviderInfo();
+                            if (providerInfo != null) {
+                              return Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 16,
+                                  vertical: 8,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                                  borderRadius: BorderRadius.circular(20),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(
+                                      Icons.psychology,
+                                      size: 16,
+                                      color: Colors.grey.shade600,
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Text(
+                                      'ใช้งาน: ${providerInfo.name}',
+                                      style: TextStyle(
+                                        color: Colors.grey.shade600,
+                                        fontSize: 12,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              );
+                            }
+                            return const SizedBox.shrink();
+                          },
                         ),
                       ],
                     ),
@@ -193,5 +265,83 @@ class _ChatScreenState extends State<ChatScreen> {
         ],
       ),
     );
+  }
+
+  void _showProvidersDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('ตั้งค่า AI Provider'),
+        content: Consumer<ChatService>(
+          builder: (context, chatService, child) {
+            final providers = chatService.providers;
+            final selectedProvider = chatService.selectedProvider;
+            
+            return Column(
+              mainAxisSize: MainAxisSize.min,
+              children: providers.map((provider) {
+                return ListTile(
+                  leading: Icon(
+                    _getProviderIcon(provider.id),
+                    color: provider.available 
+                        ? (selectedProvider == provider.id 
+                            ? Theme.of(context).colorScheme.primary
+                            : null)
+                        : Colors.grey,
+                  ),
+                  title: Text(
+                    provider.name,
+                    style: TextStyle(
+                      color: provider.available ? null : Colors.grey,
+                    ),
+                  ),
+                  subtitle: Text(
+                    provider.description,
+                    style: TextStyle(
+                      color: provider.available 
+                          ? Colors.grey.shade600 
+                          : Colors.grey.shade400,
+                    ),
+                  ),
+                  trailing: selectedProvider == provider.id
+                      ? Icon(
+                          Icons.check_circle,
+                          color: Theme.of(context).colorScheme.primary,
+                        )
+                      : provider.available
+                          ? const Icon(Icons.radio_button_unchecked)
+                          : const Icon(Icons.lock, color: Colors.grey),
+                  enabled: provider.available,
+                  onTap: provider.available
+                      ? () {
+                          chatService.setSelectedProvider(provider.id);
+                          Navigator.pop(context);
+                        }
+                      : null,
+                );
+              }).toList(),
+            );
+          },
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('ปิด'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  IconData _getProviderIcon(String providerId) {
+    switch (providerId) {
+      case 'openai':
+        return Icons.auto_awesome;
+      case 'claude':
+        return Icons.smart_toy;
+      case 'mock':
+      default:
+        return Icons.android;
+    }
   }
 }
